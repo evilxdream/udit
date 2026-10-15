@@ -10,6 +10,11 @@ Window windows[MAX_WINDOWS];
 int num_windows = 1;
 int active_window = 0;
 int split_mode = 0;
+char current_message[256];
+
+void display_set_message(const char *msg){
+    strncpy(current_message, msg, sizeof(current_message) -1);
+}
 
 void display_init(Buffer *buf) {
     num_windows = 1;
@@ -134,22 +139,22 @@ void display_draw(Buffer *buf) {
     // Setup window boundaries
     if (num_windows == 1) {
         windows[0].x = 0; windows[0].y = 0;
-        windows[0].width = screen_cols; windows[0].height = screen_rows - 1;
+        windows[0].width = screen_cols; windows[0].height = screen_rows - 2;
     } else if(split_mode == 1){
         int half = screen_cols / 2;
         windows[0].x = 0; windows[0].y = 0;
-        windows[0].width = half; windows[0].height = screen_rows - 1;
+        windows[0].width = half; windows[0].height = screen_rows - 2;
         
         windows[1].x = half + 1; windows[1].y = 0;
         windows[1].width = screen_cols - half - 1; 
-        windows[1].height = screen_rows - 1;
+        windows[1].height = screen_rows - 2;
     }else if (split_mode == 2) {
-        int half_h = (screen_rows - 1) / 2;
+        int half_h = (screen_rows - 2) / 2;
         windows[0].x = 0; windows[0].y = 0;
         windows[0].width = screen_cols; windows[0].height = half_h;
         windows[1].x = 0; windows[1].y = half_h + 1;
         windows[1].width = screen_cols;
-        windows[1].height = (screen_rows - 1) - half_h - 1;
+        windows[1].height = (screen_rows - 2) - half_h - 1;
     }
 
     // Update scrolling based on the ACTIVE window
@@ -169,12 +174,12 @@ void display_draw(Buffer *buf) {
     // Draw separator if 2 windows
     if (num_windows == 2) {
         if(split_mode == 1){
-            for (int y = 0; y < screen_rows - 1; y++) {
+            for (int y = 0; y < screen_rows - 2; y++) {
                 term_cursor_pos(screen_cols / 2, y);
                 write(STDOUT_FILENO, "|", 1);
             }
         }else {
-            int half_h = (screen_rows - 1) / 2;
+            int half_h = (screen_rows - 2) / 2;
             term_cursor_pos(0, half_h);
             for (int x = 0; x < screen_cols; x++) {
                 write(STDOUT_FILENO, "-", 1);
@@ -198,8 +203,7 @@ void display_draw(Buffer *buf) {
     }
 
     // Draw Status Line
-    term_cursor_pos(0, screen_rows - 1);
-    term_clear_line();
+    term_cursor_pos(0, screen_rows - 2);
     write(STDOUT_FILENO, "\x1b[7m", 4);
     char status[120];
     int status_len = snprintf(status, sizeof(status), 
@@ -212,6 +216,12 @@ void display_draw(Buffer *buf) {
         write(STDOUT_FILENO, " ", 1);
     }
     write(STDOUT_FILENO, "\x1b[0m", 4);
+    
+    term_cursor_pos(0, screen_rows - 1);
+    term_clear_line();
+    if(strlen(current_message) > 0){
+        write(STDOUT_FILENO, current_message, strlen(current_message));
+    }
 
     // Move cursor to active window
     term_cursor_pos(v_cx - aw->col_offset + aw->x, 

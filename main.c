@@ -193,6 +193,7 @@ void tab_complete_buffer(char *buf, int *len){
 }
 
 char *editor_prompt(const char *promt_msg, int tab_enabled){
+    display_set_message("");
     char *buf = malloc(256);
     int len = 0;
     buf[0] = '\0';
@@ -398,13 +399,13 @@ void handle_kill_buffer(Buffer **buf_ptr){
 
 Buffer *handle_ctrl_x(Buffer *buf, int *running) {
     int next_key = term_read_key();
-    if (next_key == 7) { flash_message("Quit"); return buf; }
+    if (next_key == 7) { display_set_message("Abort"); return buf; }
 
     if (next_key == 19) { // Ctrl-S (Save)
         // ... (keep your save logic exactly the same)
         
         if(!buf->dirty){
-            flash_message("No changes need to be saved.");
+            display_set_message("No changes need to be saved.");
             return buf;
         }
         
@@ -423,13 +424,9 @@ Buffer *handle_ctrl_x(Buffer *buf, int *running) {
             char msg[256];
             snprintf(msg, sizeof(msg), 
             	     "Wrote %s (%d lines)", buf->filename, lines_saved);
-            int msg_key = show_message(msg);
-            if(msg_key = 24){
-                int cmd_key = term_read_key();
-                if(cmd_key == 3) *running = 0;
-            }
+            display_set_message(msg);
         }else {
-            show_message("Error saving file!");
+            display_set_message("Error saving file!");
         }
     } 
     else if (next_key == 6) { // Ctrl-F (Open)
@@ -451,8 +448,11 @@ Buffer *handle_ctrl_x(Buffer *buf, int *running) {
     else if (next_key == 'b') handle_switch_buffer(&buf);
     else if (next_key == 'k') handle_kill_buffer(&buf);
     else if (next_key == 24) buffer_exchange_point_mark(buf);
-    else if (next_key == 3) { // C-x C-c (Quit)
+    else if (next_key == 3) { // C-x C-c (Abort)
         if (!buf->dirty || confirm_discard()) *running = 0;
+    }
+    else{
+    	display_set_message("");
     }
     return buf;
 }
@@ -470,7 +470,7 @@ void handle_meta_x(Buffer *buf, int *running){
         }
         
         if(!buf->dirty){
-            flash_message("No changes need to be saved.");
+            display_set_message("No changes need to be saved.");
             free(cmd);
             return;
         }
@@ -480,14 +480,9 @@ void handle_meta_x(Buffer *buf, int *running){
             char msg[256];
             snprintf(msg, sizeof(msg), "Wrote %s (%d lines)",
                      buf->filename, lines_saved);
-            int msg_key = show_message(msg);
-            if(msg_key = 24){
-                int cmd_key = term_read_key();
-                if(cmd_key == 3) *running = 0;
-            }
-            show_message(msg);
+            display_set_message(msg);
         }else{
-            show_message("Error saving file!");
+            display_set_message("Error saving file!");
         }
     }
     else if (strcmp(cmd, "find-file") == 0) {
@@ -717,10 +712,18 @@ int main(int argc, char *argv[]) {
 
         switch (key) {
             case 7: { // Ctrl-G
-                if (buf->mark_active) { buf->mark_active = 0; flash_message("Quit"); }
+                if (buf->mark_active) { 
+                    buf->mark_active = 0; 
+                }
+                display_set_message("Abort"); 
                 break;
             }
-            case 24: buf = handle_ctrl_x(buf, &running); break;  // DELEGATE!
+            case 24: {
+            	display_set_message("C-x-");
+            	display_draw(buf);
+                buf = handle_ctrl_x(buf, &running); 
+                break;  // DELEGATE!
+            }
             case META_X: handle_meta_x(buf, &running); break; // DELEGATE!
             case 19: handle_inc_search(buf); break; // DELEGATE!
             case META_PERCENT: handle_inc_qreplace(buf); break; // DELEGATE!
@@ -790,7 +793,10 @@ int main(int argc, char *argv[]) {
             	break;
             }
             default:
-                if (key >= 32 && key <= 126) buffer_insert_char(buf, key);
+                if (key >= 32 && key <= 126) {
+                    display_set_message(" ");
+                    buffer_insert_char(buf, key);
+                }
                 break;
         }
     }

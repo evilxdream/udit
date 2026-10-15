@@ -19,5 +19,6 @@ void display_unsplit();
 Buffer *display_next_window();
 int display_get_active();
 Window *display_get_windows(int *count);
+void display_set_message(const char *msg);
 
 #endif

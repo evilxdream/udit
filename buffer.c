@@ -447,6 +447,7 @@ void buffer_replace_at_cursor(Buffer *buf, int match_len,
     line->length = new_length;
     line->chars[line->length] = '\0';
     buf->cx += replace_len;
+    buf->dirty = 1;
 }
 
 // Helper to extract text between mark and cursor
