@@ -8,6 +8,10 @@
 #include <dirent.h>
 #include <signal.h>
 
+#define MAX_BUFFER 20
+Buffer *all_buffers[MAX_BUFFER];
+int num_buffers = 0;
+
 void tab_complete_file(char *buf, int *len) {
     // Static variables remember their values between Tab presses!
     static char matches[100][256];
@@ -161,6 +165,33 @@ void tab_complete_command(char *buf, int *len) {
     }
 }
 
+void tab_complete_buffer(char *buf, int *len){
+	static int cycle_idx = -1;
+	for(int i = 0; i < num_buffers; i++){
+		if(all_buffers[i] && strcmp(buf, all_buffers[i]->filename) == 0){
+			cycle_idx = (i + 1) % num_buffers;
+			while(!all_buffers[cycle_idx]){
+				cycle_idx = (cycle_idx + 1) % num_buffers;
+			}
+			strcpy(buf, all_buffers[cycle_idx]->filename);
+			*len = strlen(buf);
+			return;
+		}
+	}
+	cycle_idx = -1;
+	for(int i = 0; i < num_buffers; i++){
+		if(all_buffers[i] 
+		   && strncmp(all_buffers[i]->filename, buf, *len) == 0){
+		   	cycle_idx = i;
+		   	break;
+		}
+	}
+	if(cycle_idx != -1){
+		strcpy(buf, all_buffers[cycle_idx]->filename);
+		*len = strlen(buf);
+	}
+}
+
 char *editor_prompt(const char *promt_msg, int tab_enabled){
     char *buf = malloc(256);
     int len = 0;
@@ -188,6 +219,8 @@ char *editor_prompt(const char *promt_msg, int tab_enabled){
             tab_complete_file(buf, &len);
         }else if (c == 9 && tab_enabled == 2) {
             tab_complete_command(buf, &len);
+        }else if (c == 9 && tab_enabled == 3){
+            tab_complete_buffer(buf, &len);
         }else if (c > 32 && c <= 126) {
             buf[len++] = c;
             buf[len] = '\0';
@@ -232,25 +265,33 @@ void editor_open_file(Buffer **buf_ptr) {
     
     char *path = expand_path(fn);
     
+    Buffer *new_buf = buffer_create();
+    buffer_open(new_buf, path);
+    
+    all_buffers[num_buffers++] = new_buf;
+    
     // 1. Check if the current buffer is shared by another window
     int w_count;
     Window *wins = display_get_windows(&w_count);
     int aw = display_get_active();
-    int shared = 0;
-    for (int i = 0; i < w_count; i++) {
-        if (i != aw && wins[i].buf == *buf_ptr) shared = 1;
-    }
+    wins[aw].buf = new_buf;
+    
+    //int shared = 0;
+    //for (int i = 0; i < w_count; i++) {
+    //    if (i != aw && wins[i].buf == *buf_ptr) shared = 1;
+    //}
+    *buf_ptr = new_buf;
     
     // 2. Create a brand new buffer for the new file
-    Buffer *old_buf = *buf_ptr;
-    *buf_ptr = buffer_create();
-    buffer_open(*buf_ptr, path);
+    //Buffer *old_buf = *buf_ptr;
+    //*buf_ptr = buffer_create();
+    //buffer_open(*buf_ptr, path);
     
     // 3. Point the current window to the new buffer
-    wins[aw].buf = *buf_ptr;
+    //wins[aw].buf = *buf_ptr;
     
     // 4. If the old buffer was not shared, destroy it to prevent memory leaks!
-    if (!shared) buffer_free(old_buf);
+    //if (!shared) buffer_free(old_buf);
     
     free(path);
     free(fn);
@@ -296,6 +337,64 @@ void handle_shell_command() {
     term_read_key();
 }
 
+void handle_switch_buffer(Buffer **buf_ptr){
+	char *name = editor_prompt("Switch to buffer: ", 3);
+	if(!name) return;
+	
+	for(int i = 0; i < num_buffers; i++){
+		if(all_buffers[i] && strcmp(all_buffers[i]->filename, name) == 0){
+			int w_count; Window *wins = display_get_windows(&w_count);
+			int aw = display_get_active();
+			wins[aw].buf = all_buffers[i];
+			*buf_ptr = all_buffers[i];
+			display_reset_scroll();
+			free(name);
+			return;
+		}
+	}
+	show_message("Buffer not found.");
+	free(name);
+}
+
+void handle_kill_buffer(Buffer **buf_ptr){
+    char *name = editor_prompt("kill buffer (default: current): ", 3);
+    if(!name) return;
+    if(strlen(name) == 0){
+        free(name);
+        name = strdup((*buf_ptr)->filename);
+    }
+    
+    int killed_active = 0;
+    for(int i = 0; i < num_buffers; i++){
+        if(all_buffers[i] && strcmp(all_buffers[i]->filename, name) == 0){
+            if(all_buffers[i]->dirty){
+                if(!confirm_discard()){ free(name); return; }
+            }
+            int w_count;
+            Window *wins = display_get_windows(&w_count);
+            int aw = display_get_active();
+            if(wins[aw].buf == all_buffers[i]) killed_active = 1;
+            
+            buffer_free(all_buffers[i]);
+            all_buffers[i] = NULL;
+            
+            if(killed_active){
+                for(int j = 0; j < num_buffers; j++){
+                    if(all_buffers[j]){
+                    	wins[aw].buf = all_buffers[j];
+                    	*buf_ptr = all_buffers[j];
+                    	display_reset_scroll();
+                    	break;
+                    }
+                }
+            }
+            free(name);
+            return;
+        }
+    }
+    show_message("Bufer not found.");
+    free(name);
+}
 
 Buffer *handle_ctrl_x(Buffer *buf, int *running) {
     int next_key = term_read_key();
@@ -348,7 +447,9 @@ Buffer *handle_ctrl_x(Buffer *buf, int *running) {
     else if (next_key == '1') display_unsplit();
     else if (next_key == 'o') { // C-x o (Other window)
         buf = display_next_window(); // Update buf to the other window's buffer!
-    } 
+    }
+    else if (next_key == 'b') handle_switch_buffer(&buf);
+    else if (next_key == 'k') handle_kill_buffer(&buf);
     else if (next_key == 24) buffer_exchange_point_mark(buf);
     else if (next_key == 3) { // C-x C-c (Quit)
         if (!buf->dirty || confirm_discard()) *running = 0;
@@ -594,7 +695,12 @@ int main(int argc, char *argv[]) {
     term_init();
     term_enter_alt_screen();
     term_clear_screen();
+    
     Buffer *buf = buffer_create();
+    buf->filename = strdup("*scratch*");
+    all_buffers[0] = buf;
+    num_buffers = 1;
+    
     display_init(buf);
 
     if (argc >= 2) {
