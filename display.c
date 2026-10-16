@@ -65,70 +65,110 @@ int get_visual_cx(Buffer *buf) {
     return visual_cx;
 }
 
-// --- NEW HELPER: Renders a single line with region highlighting ---
+// --- NEW HELPER: Renders a single line with visual spaces instead of real tabs ---
 void render_line(Buffer *buf, int file_row, Window *cw) {
-    if (file_row >= buf->num_lines) return; // Empty line, already cleared
+    if (file_row >= buf->num_lines) return;
     
     Line *line = buf->lines[file_row];
-    int len = line->length - cw->col_offset;
-    if (len <= 0) return;
-    if (len > cw->width) len = cw->width;
+    if (line->length == 0) return;
     
-    // If no region is active, just draw it and return
+    // Helper macro to draw a character visually (converting tabs to spaces)
+    #define DRAW_CHAR(c, is_highlighted) \
+        if (is_highlighted) write(STDOUT_FILENO, "\x1b[7m", 4); \
+        if (c == '\t') { \
+            int tab_width = 8 - (visual_x % 8); \
+            for (int s = 0; s < tab_width; s++) write(STDOUT_FILENO, " ", 1); \
+        } else { \
+            write(STDOUT_FILENO, &c, 1); \
+        } \
+        if (is_highlighted) write(STDOUT_FILENO, "\x1b[0m", 4);
+
+    // 1. No region active
     if (!buf->mark_active) {
-        write(STDOUT_FILENO, &line->chars[cw->col_offset], len);
+        int visual_x = 0;
+        for (int i = 0; i < line->length; i++) {
+            char c = line->chars[i];
+            int char_width = (c == '\t') ? (8 - (visual_x % 8)) : 1;
+            
+            if (visual_x + char_width > cw->col_offset && visual_x < cw->col_offset + cw->width) {
+                if (visual_x >= cw->col_offset) {
+                    DRAW_CHAR(c, 0);
+                } else {
+                    // Partially visible on the left edge
+                    for (int s = 0; s < char_width; s++) {
+                        if (visual_x + s >= cw->col_offset) write(STDOUT_FILENO, " ", 1);
+                    }
+                }
+            }
+            visual_x += char_width;
+            if (visual_x >= cw->col_offset + cw->width) break;
+        }
         return;
     }
 
-    // Region is active, calculate bounds
+    // 2. Region is active
     int sy, ey, sx, ex;
-    if (buf->cy < buf->mark_y) { 
-        sy = buf->cy; ey = buf->mark_y; 
-        sx = buf->cx; ex = buf->mark_x; 
-    }else if (buf->cy > buf->mark_y) { 
-        sy = buf->mark_y; ey = buf->cy; 
-        sx = buf->mark_x; ex = buf->cx; 
-    }else { 
-        sy = ey = buf->cy; 
-        if (buf->cx < buf->mark_x) { 
-            sx = buf->cx; ex = buf->mark_x; 
-        } else { 
-            sx = buf->mark_x; 
-            ex = buf->cx; 
-        } 
-    }
+    if (buf->cy < buf->mark_y) { sy = buf->cy; ey = buf->mark_y; sx = buf->cx; ex = buf->mark_x; }
+    else if (buf->cy > buf->mark_y) { sy = buf->mark_y; ey = buf->cy; sx = buf->mark_x; ex = buf->cx; }
+    else { sy = ey = buf->cy; if (buf->cx < buf->mark_x) { sx = buf->cx; ex = buf->mark_x; } else { sx = buf->mark_x; ex = buf->cx; } }
 
-    // If line is outside selection, draw normally and return
     if (file_row < sy || file_row > ey) {
-        write(STDOUT_FILENO, &line->chars[cw->col_offset], len);
+        // Outside selection
+        int visual_x = 0;
+        for (int i = 0; i < line->length; i++) {
+            char c = line->chars[i];
+            int char_width = (c == '\t') ? (8 - (visual_x % 8)) : 1;
+            if (visual_x + char_width > cw->col_offset && visual_x < cw->col_offset + cw->width) {
+                if (visual_x >= cw->col_offset) {
+                    DRAW_CHAR(c, 0);
+                } else {
+                    for (int s = 0; s < char_width; s++) {
+                        if (visual_x + s >= cw->col_offset) write(STDOUT_FILENO, " ", 1);
+                    }
+                }
+            }
+            visual_x += char_width;
+            if (visual_x >= cw->col_offset + cw->width) break;
+        }
         return;
     }
 
-    // Line is inside selection, calculate clamped bounds
-    int vis_start = cw->col_offset;
-    int vis_end = cw->col_offset + len;
-    int draw_start = vis_start;
-    int draw_end = vis_end;
-    
-    if (file_row == sy) draw_start = sx;
-    if (file_row == ey) draw_end = ex;
-    
-    if (draw_start < vis_start) draw_start = vis_start;
-    if (draw_start > vis_end) draw_start = vis_end;
-    if (draw_end < vis_start) draw_end = vis_start;
-    if (draw_end > vis_end) draw_end = vis_end;
-
-    // Print the 3 parts
-    if (vis_start < draw_start) write(STDOUT_FILENO, &line->chars[vis_start], draw_start - vis_start);
-    
-    if (draw_start < draw_end) {
-        write(STDOUT_FILENO, "\x1b[7m", 4);
-        write(STDOUT_FILENO, &line->chars[draw_start], draw_end - draw_start);
-        write(STDOUT_FILENO, "\x1b[0m", 4);
+    // Line is inside selection
+    int highlight_start_byte = -1;
+    int highlight_end_byte = -1;
+    int curr_visual = 0;
+    for (int i = 0; i <= line->length; i++) {
+        if (file_row == sy && curr_visual == sx) highlight_start_byte = i;
+        if (file_row == ey && curr_visual == ex) highlight_end_byte = i;
+        if (i < line->length) {
+            char c = line->chars[i];
+            curr_visual += (c == '\t') ? (8 - (curr_visual % 8)) : 1;
+        }
     }
-    
-    if (draw_end < vis_end) {
-        write(STDOUT_FILENO, &line->chars[draw_end], vis_end - draw_end);
+
+    int visual_x = 0;
+    for (int i = 0; i < line->length; i++) {
+        char c = line->chars[i];
+        int char_width = (c == '\t') ? (8 - (visual_x % 8)) : 1;
+        
+        if (visual_x + char_width > cw->col_offset && visual_x < cw->col_offset + cw->width) {
+            int is_highlighted = (i >= highlight_start_byte && i < highlight_end_byte);
+            
+            if (visual_x >= cw->col_offset) {
+                DRAW_CHAR(c, is_highlighted);
+            } else {
+                // Partially visible on left edge (never highlighted if it's the first char of a split)
+                for (int s = 0; s < char_width; s++) {
+                    if (visual_x + s >= cw->col_offset) {
+                        if (is_highlighted) write(STDOUT_FILENO, "\x1b[7m", 4);
+                        write(STDOUT_FILENO, " ", 1);
+                        if (is_highlighted) write(STDOUT_FILENO, "\x1b[0m", 4);
+                    }
+                }
+            }
+        }
+        visual_x += char_width;
+        if (visual_x >= cw->col_offset + cw->width) break;
     }
 }
 
