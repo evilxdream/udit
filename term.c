@@ -101,6 +101,7 @@ int term_read_key(){
     if(seq[0] == 'f') return META_F;
     if(seq[0] == 'b') return META_B;
     if(seq[0] == 'v') return META_V;
+    if(seq[0] == '/') return META_SLASH;
     return '\x1b';
 }
 

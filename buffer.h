@@ -44,5 +44,7 @@ void buffer_save_history(Buffer *buf);
 void buffer_undo(Buffer *buf);
 void buffer_move_word_forward(Buffer *buf);
 void buffer_move_word_backward(Buffer *buf);
+char *buffer_get_word_prefix(Buffer *buf);
+void buffer_index_words(Buffer *buf);
 
 #endif

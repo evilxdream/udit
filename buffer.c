@@ -1,3 +1,4 @@
+#include "wordset.h"
 #include "buffer.h"
 #include <stdlib.h>
 #include <string.h>
@@ -710,4 +711,51 @@ void buffer_move_word_backward(Buffer *buf) {
     while (buf->cx > 0 && !isspace((unsigned char)line->chars[buf->cx - 1])) {
         buf->cx--;
     }
+}
+
+char *buffer_get_word_prefix(Buffer *buf){
+	Line *line = buf->lines[buf->cy];
+	int end = buf->cx;
+	int start = end;
+	
+	while(start > 0 && (isalpha((unsigned char)line->chars[start - 1])
+		|| line->chars[start - 1] == '_')){
+		start++;
+	}
+	
+	int len = end - start;
+	if(len < 3) return NULL;
+	
+	char *prefix = malloc(len + 1);
+	memcpy(prefix, &line->chars[start], len);
+	prefix[len] = '\0';
+	return prefix;
+}
+
+void buffer_index_words(Buffer *buf){
+	for(int y = 0; y < buf->num_lines; y++){
+		Line *line = buf->lines[y];
+		int i = 0;
+		while(i < line->length){
+		    if(isalpha((unsigned char)line->chars[i]) 
+		    	|| line->chars[i] == '_'){
+		    	int start = i;
+		    	while(i < line->length 
+		    	      && (isalnum((unsigned char)line->chars[i])
+		    	      || line->chars[i] == '_')){
+		    	    i++;
+		    	}
+		    	int len = i - start;
+		    	if(len >= 3){
+		    	    char word[256];
+		    	    if(len > 255) len = 255;
+		    	    memcpy(word, &line->chars[start], len);
+		    	    word[len] = '\0';
+		    	    wordset_add(word);
+		    	}
+		    }else{
+		        i++;
+		    }
+		}
+	}
 }

@@ -12,7 +12,8 @@ enum EditorKey {
     META_BANG,
     META_F,
     META_B,
-    META_V
+    META_V,
+    META_SLASH
 };
 
 void term_init();

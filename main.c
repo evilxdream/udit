@@ -1,9 +1,11 @@
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include "term.h"
 #include "buffer.h"
 #include "display.h"
+#include "wordset.h"
 #include <string.h>
 #include <dirent.h>
 #include <signal.h>
@@ -268,6 +270,7 @@ void editor_open_file(Buffer **buf_ptr) {
     
     Buffer *new_buf = buffer_create();
     buffer_open(new_buf, path);
+    buffer_index_words(new_buf);
     
     all_buffers[num_buffers++] = new_buf;
     
@@ -686,6 +689,69 @@ void resume_editor(int sig){
     term_clear_screen();
 }
 
+void handle_autocomplete(Buffer *buf) {
+    static char *active_prefix = NULL;
+    static char **matches = NULL;
+    static int match_count = 0;
+    static int match_idx = 0;
+    static int original_prefix_len = 0;
+
+    // 1. Get the word currently under the cursor
+    Line *line = buf->lines[buf->cy];
+    int end = buf->cx;
+    int start = end;
+    while (start > 0 && (isalpha(line->chars[start-1]) || line->chars[start-1] == '_')) start--;
+    
+    int current_len = end - start;
+    char current_word[256];
+    memcpy(current_word, &line->chars[start], current_len);
+    current_word[current_len] = '\0';
+
+    // 2. Check if we are cycling (cursor hasn't moved, word hasn't changed)
+    int is_cycling = 0;
+    if (matches && match_count > 0 && active_prefix && 
+        strcmp(current_word, active_prefix) == 0 && 
+        current_len == original_prefix_len) {
+        is_cycling = 1;
+    }
+
+    if (!is_cycling) {
+        // New search
+        if (active_prefix) { free(active_prefix); active_prefix = NULL; }
+        if (matches) { wordset_free_matches(matches); matches = NULL; }
+        
+        active_prefix = strdup(current_word);
+        original_prefix_len = current_len;
+        matches = wordset_get_matches(current_word, &match_count);
+        match_idx = 0;
+    } else {
+        // Cycling! Erase the previous completion
+        int chars_to_delete = buf->cx - (start + original_prefix_len);
+        for (int i = 0; i < chars_to_delete; i++) {
+            buffer_delete_char(buf);
+        }
+        match_idx = (match_idx + 1) % match_count;
+    }
+
+    // 3. Insert the new match
+    if (match_count > 0) {
+        char *match = matches[match_idx];
+        for (int i = original_prefix_len; i < strlen(match); i++) {
+            buffer_insert_char(buf, match[i]);
+        }
+        
+        if (match_count > 1) {
+            char msg[256];
+            snprintf(msg, sizeof(msg), "Match %d of %d: %s", match_idx + 1, match_count, match);
+            display_set_message(msg);
+        } else {
+            display_set_message("Completed.");
+        }
+    } else {
+        display_set_message("No match found.");
+    }
+}
+
 int main(int argc, char *argv[]) {
     term_init();
     term_enter_alt_screen();
@@ -700,6 +766,7 @@ int main(int argc, char *argv[]) {
 
     if (argc >= 2) {
         buffer_open(buf, argv[1]);
+        buffer_index_words(buf);
         display_reset_scroll();
     }
 
@@ -735,7 +802,12 @@ int main(int argc, char *argv[]) {
             case 14: buffer_move_cursor(buf, 'D'); break;
             case 2:  buffer_move_cursor(buf, 'L'); break;
             case 6:  buffer_move_cursor(buf, 'R'); break;
-            case 9:  buffer_insert_char(buf, '\t'); break;
+            case 9: {
+                for(int i = 0; i < 4; i++){
+                    buffer_insert_char(buf, ' ');
+                }
+                break;
+            }
             
             // --- Emacs Kill Ring ---
             case 11: buffer_kill_line(buf); break;
@@ -756,7 +828,21 @@ int main(int argc, char *argv[]) {
             
             case 127: case 8: buffer_delete_char(buf); break;
             case 4:  buffer_delete_forward(buf); break;
-            case 13: buffer_insert_newline(buf, 1); break;
+            case 13: { // Enter
+                // Add word to hash set before inserting newline
+                Line *line = buf->lines[buf->cy];
+                int end = buf->cx; int start = end;
+                while (start > 0 && (isalpha(line->chars[start-1]) || line->chars[start-1] == '_')) start--;
+                int len = end - start;
+                if (len >= 3) {
+                    char word[256];
+                    memcpy(word, &line->chars[start], len);
+                    word[len] = '\0';
+                    wordset_add(word);
+                }
+                buffer_insert_newline(buf, 1);
+                break;
+            }
             case 17: { // Ctrl-Q (Quoted insert)
                 int literal_key = term_read_key();
                 if (literal_key == 9 || (literal_key >= 32 && literal_key <= 126))
@@ -792,12 +878,60 @@ int main(int argc, char *argv[]) {
             	}
             	break;
             }
-            default:
-                if (key >= 32 && key <= 126) {
-                    display_set_message(" ");
-                    buffer_insert_char(buf, key);
-                }
-                break;
+            case META_SLASH: {
+                handle_autocomplete(buf); break;
+            }
+	    default:
+	        if (key >= 32 && key <= 126) {
+        	    display_set_message(""); // Clear echo area
+        	    buffer_insert_char(buf, key);
+                  
+	            // If a word just ended (space, punct, etc.), add it to hash set
+        	    if (!isalpha(key) && key != '_') {
+            		Line *line = buf->lines[buf->cy];
+            		int end = buf->cx - 1; int start = end;
+            		while (start > 0 
+            		    && (isalpha(line->chars[start-1]) 
+            		    || line->chars[start-1] == '_')) start--;
+            		int len = end - start;
+	                if (len >= 3) {
+	                    char word[256];
+	                    memcpy(word, &line->chars[start], len);
+     		            word[len] = '\0';
+        	            wordset_add(word);
+            		}
+                    } else {
+	                // Still typing a word, show suggestion in Echo Area
+            	        Line *line = buf->lines[buf->cy];
+            	        int end = buf->cx; int start = end;
+            	        while (start > 0 
+            	            && (isalpha(line->chars[start-1]) 
+            	            || line->chars[start-1] == '_')) start--;
+            	        int len = end - start;
+ 	                if (len >= 3) {
+   	                    char prefix[256];
+        	            memcpy(prefix, &line->chars[start], len);
+          	            prefix[len] = '\0';
+                            
+                	    int m_count = 0;
+                	    char **m = wordset_get_matches(prefix, &m_count);
+                	    if (m_count > 0) {
+                                char msg[256];
+                    	        if (m_count == 1) {
+                        	   snprintf(msg, sizeof(msg), 
+                        	   	    "Match: %s (M-/ to complete)", m[0]);
+                    	        } else {
+                        	    snprintf(msg, sizeof(msg), 
+                        	    	     "Match: %s (+%d more, M-/ to cycle)", 
+                        	    	     m[0], m_count - 1);
+                    	    	}
+                    	    	display_set_message(msg);
+                    	    }
+                    	    wordset_free_matches(m);
+                       }
+                   }
+    	       }
+    	       break;
         }
     }
 

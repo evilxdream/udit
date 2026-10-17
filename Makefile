@@ -4,7 +4,7 @@ CC = gcc
 
 CFLAGS = -Wall -Wextra -g
 
-SRC = main.c term.c buffer.c display.c
+SRC = main.c term.c buffer.c display.c wordset.c
 
 OBJ = $(SRC:.c=.o)
 
