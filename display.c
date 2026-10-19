@@ -267,7 +267,9 @@ void display_draw(Buffer *buf) {
                 }
             }else {
                 int half_h = (screen_rows - 2) / 2;
-                len = snprintf(buf_temp, sizeof(buf_temp), "\x1b[%d;%dH", 1, 1);
+                len = snprintf(buf_temp, 
+                               sizeof(buf_temp), 
+                               "\x1b[%d;%dH", half_h + 1, 1);
                 ab_append(&ab, buf_temp, len);
                 for (int x = 0; x < screen_cols; x++) {
                     ab_append(&ab, "-", 1);
@@ -276,12 +278,17 @@ void display_draw(Buffer *buf) {
         }
         for (int w = 0; w < num_windows; w++) {
             Window *cw = &windows[w];
+            char blank[cw->width + 1];
+            memset(blank, ' ', cw->width);
+            blank[cw->width] = '\0';
             for (int y = 0; y < cw->height; y++) {
                 len = snprintf(buf_temp,
                                sizeof(buf_temp), "\x1b[%d;%dH",
                                cw->y + y + 1, cw->x + 1);
                 ab_append(&ab, buf_temp, len); // Clear line
-                ab_append(&ab, "\x1b[K", 3);
+                ab_append(&ab, blank, cw->width);
+                ab_append(&ab, buf_temp, len);
+                
                 render_line(windows[w].buf, y + cw->row_offset, cw, &ab); 
             }
         }
