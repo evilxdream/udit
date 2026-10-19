@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 
 #define MAX_WINDOWS 2
 Window windows[MAX_WINDOWS];
@@ -11,6 +12,29 @@ int num_windows = 1;
 int active_window = 0;
 int split_mode = 0;
 char current_message[256];
+
+struct abuf {
+    char *b;
+    int len;
+    int cap;
+};
+
+#define ABUF_INIT {NULL, 0}
+
+void ab_append(struct abuf *ab, const char *s, int len){
+    if(ab->len + len > ab->cap){
+        while (ab->len + len > ab->cap) {
+            ab->cap = ab->cap ? ab->cap * 2 : 1024;
+        }
+        ab->b = realloc(ab->b, ab->cap);
+    }
+    memcpy(&ab->b[ab->len], s, len);
+    ab->len += len;
+}
+
+void ab_free(struct abuf *ab){
+    free(ab->b);
+}
 
 void display_set_message(const char *msg){
     strncpy(current_message, msg, sizeof(current_message) -1);
@@ -66,7 +90,7 @@ int get_visual_cx(Buffer *buf) {
 }
 
 // --- NEW HELPER: Renders a single line with visual spaces instead of real tabs ---
-void render_line(Buffer *buf, int file_row, Window *cw) {
+void render_line(Buffer *buf, int file_row, Window *cw, struct abuf *ab) {
     if (file_row >= buf->num_lines) return;
     
     Line *line = buf->lines[file_row];
@@ -74,14 +98,14 @@ void render_line(Buffer *buf, int file_row, Window *cw) {
     
     // Helper macro to draw a character visually (converting tabs to spaces)
     #define DRAW_CHAR(c, is_highlighted) \
-        if (is_highlighted) write(STDOUT_FILENO, "\x1b[7m", 4); \
+        if (is_highlighted) ab_append(ab, "\x1b[7m", 4); \
         if (c == '\t') { \
             int tab_width = 8 - (visual_x % 8); \
-            for (int s = 0; s < tab_width; s++) write(STDOUT_FILENO, " ", 1); \
+            for (int s = 0; s < tab_width; s++) ab_append(ab, " ", 1); \
         } else { \
-            write(STDOUT_FILENO, &c, 1); \
+            ab_append(ab, &c, 1); \
         } \
-        if (is_highlighted) write(STDOUT_FILENO, "\x1b[0m", 4);
+        if (is_highlighted) ab_append(ab, "\x1b[0m", 4);
 
     // 1. No region active
     if (!buf->mark_active) {
@@ -96,7 +120,7 @@ void render_line(Buffer *buf, int file_row, Window *cw) {
                 } else {
                     // Partially visible on the left edge
                     for (int s = 0; s < char_width; s++) {
-                        if (visual_x + s >= cw->col_offset) write(STDOUT_FILENO, " ", 1);
+                        if (visual_x + s >= cw->col_offset) ab_append(ab, " ", 1);
                     }
                 }
             }
@@ -123,7 +147,7 @@ void render_line(Buffer *buf, int file_row, Window *cw) {
                     DRAW_CHAR(c, 0);
                 } else {
                     for (int s = 0; s < char_width; s++) {
-                        if (visual_x + s >= cw->col_offset) write(STDOUT_FILENO, " ", 1);
+                        if (visual_x + s >= cw->col_offset) ab_append(ab, " ", 1);
                     }
                 }
             }
@@ -160,9 +184,9 @@ void render_line(Buffer *buf, int file_row, Window *cw) {
                 // Partially visible on left edge (never highlighted if it's the first char of a split)
                 for (int s = 0; s < char_width; s++) {
                     if (visual_x + s >= cw->col_offset) {
-                        if (is_highlighted) write(STDOUT_FILENO, "\x1b[7m", 4);
-                        write(STDOUT_FILENO, " ", 1);
-                        if (is_highlighted) write(STDOUT_FILENO, "\x1b[0m", 4);
+                        if (is_highlighted) ab_append(ab, "\x1b[7m", 4);
+                        ab_append(ab, " ", 1);
+                        if (is_highlighted) ab_append(ab, "\x1b[0m", 4);
                     }
                 }
             }
@@ -207,22 +231,36 @@ void display_draw(Buffer *buf) {
     int v_cx = get_visual_cx(buf);
     if (v_cx < aw->col_offset) aw->col_offset = v_cx;
     if (v_cx >= aw->col_offset + aw->width) aw->col_offset = v_cx - aw->width + 1;
+    
+    struct abuf ab = ABUF_INIT;
 
-    term_hide_cursor();
-    term_cursor_pos(0, 0);
+    //term_hide_cursor();
+    ab_append(&ab, "\x1b[?25l", 6);
+    //term_cursor_pos(0, 0);
+    
+    char buf_temp[32];
+    int len = snprintf(buf_temp, sizeof(buf_temp), "\x1b[%d;%dH", 1, 1);
+    ab_append(&ab, buf_temp, len);
 
     // Draw separator if 2 windows
     if (num_windows == 2) {
         if(split_mode == 1){
             for (int y = 0; y < screen_rows - 2; y++) {
-                term_cursor_pos(screen_cols / 2, y);
-                write(STDOUT_FILENO, "|", 1);
+                len = snprintf(buf_temp, sizeof(buf_temp),
+                               "\x1b[%d;%dH",
+                               y + 1, (screen_cols / 2) + 1);
+                ab_append(&ab, buf_temp, len);
+                ab_append(&ab, "|", 1);
+                //term_cursor_pos(screen_cols / 2, y);
+                //write(STDOUT_FILENO, "|", 1);
             }
         }else {
             int half_h = (screen_rows - 2) / 2;
-            term_cursor_pos(0, half_h);
+            len = snprintf(buf_temp, sizeof(buf_temp), "\x1b[%d;%dH", 1, 1);
+            ab_append(&ab, buf_temp, len);
+            //term_cursor_pos(0, half_h);
             for (int x = 0; x < screen_cols; x++) {
-                write(STDOUT_FILENO, "-", 1);
+                ab_append(&ab, "-", 1);
             }
         }
     }
@@ -230,41 +268,57 @@ void display_draw(Buffer *buf) {
     // --- FLAT WINDOW DRAWING LOOP ---
     for (int w = 0; w < num_windows; w++) {
         Window *cw = &windows[w];
-        char blank[cw->width + 1];
-        memset(blank, ' ', cw->width);
-        blank[cw->width] = '\0';
+        //char blank[cw->width + 1];
+        //memset(blank, ' ', cw->width);
+        //blank[cw->width] = '\0';
 
         for (int y = 0; y < cw->height; y++) {
-            term_cursor_pos(cw->x, cw->y + y);
-            write(STDOUT_FILENO, blank, cw->width); // Clear line
-            term_cursor_pos(cw->x, cw->y + y);
-            render_line(windows[w].buf, y + cw->row_offset, cw); 
+            //term_cursor_pos(cw->x, cw->y + y);
+            len = snprintf(buf_temp, 
+                            sizeof(buf_temp), "\x1b[%d;%dH", 
+                            cw->y + y + 1, cw->x + 1);
+            ab_append(&ab, buf_temp, len); // Clear line
+            ab_append(&ab, "\x1b[K", 3);
+            //term_cursor_pos(cw->x, cw->y + y);
+            render_line(windows[w].buf, y + cw->row_offset, cw, &ab); 
         }
     }
 
     // Draw Status Line
-    term_cursor_pos(0, screen_rows - 2);
-    write(STDOUT_FILENO, "\x1b[7m", 4);
+    //term_cursor_pos(0, screen_rows - 2);
+    len = snprintf(buf_temp, sizeof(buf_temp), "\x1b[%d;%dH", screen_rows - 1, 1);
+    ab_append(&ab, buf_temp, len);
+    ab_append(&ab, "\x1b[7m", 4);
     char status[120];
     int status_len = snprintf(status, sizeof(status), 
     			"%s File: %s -- Line: %d -- Col: %d -- Win: %d", 
                         buf->dirty ? "**" : "  ", 
                         buf->filename ? buf->filename : "[None]", 
                         buf->cy + 1, buf->cx + 1, active_window + 1);
-    write(STDOUT_FILENO, status, status_len);
+    ab_append(&ab, status, status_len);
     for(int i = status_len; i < screen_cols; i++){
-        write(STDOUT_FILENO, " ", 1);
+        ab_append(&ab, " ", 1);
     }
-    write(STDOUT_FILENO, "\x1b[0m", 4);
+    ab_append(&ab, "\x1b[0m", 4);
     
-    term_cursor_pos(0, screen_rows - 1);
-    term_clear_line();
+    //term_cursor_pos(0, screen_rows - 1);
+    //term_clear_line();
+    len = snprintf(buf_temp, sizeof(buf_temp), "\x1b[%d;%dH", screen_rows, 1);
+    ab_append(&ab, buf_temp, len);
+    ab_append(&ab, "\x1b[K", 3);
     if(strlen(current_message) > 0){
-        write(STDOUT_FILENO, current_message, strlen(current_message));
+        ab_append(&ab, current_message, strlen(current_message));
     }
 
     // Move cursor to active window
-    term_cursor_pos(v_cx - aw->col_offset + aw->x, 
-    		    buf->cy - aw->row_offset + aw->y);
-    term_show_cursor();
+    //term_cursor_pos(v_cx - aw->col_offset + aw->x, 
+    //		    buf->cy - aw->row_offset + aw->y);
+    len = snprintf(buf_temp, sizeof(buf_temp), "\x1b[%d;%dH",
+                   (buf->cy -aw->row_offset + aw->y) + 1,
+                   (v_cx - aw->col_offset + aw->x)+ 1);
+    ab_append(&ab, buf_temp, len);
+    //term_show_cursor();
+    ab_append(&ab, "\x1b[?25h", 6);
+    write(STDOUT_FILENO, ab.b, ab.len);
+    ab_free(&ab);
 }
