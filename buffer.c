@@ -71,6 +71,7 @@ Buffer *buffer_create() {
     buf->mark_y = 0;
     buf->mark_active = 0;
     buf->dirty = 0;
+    buf->needs_redraw = 1;
     
     return buf;
 }
@@ -108,6 +109,7 @@ void buffer_insert_char(Buffer *buf, char c) {
     
     buf->cx++;
     buf->dirty = 1;
+    buf->needs_redraw = 1;
 }
 
 // --- Cursor Movement ---
@@ -190,6 +192,7 @@ void buffer_delete_char(Buffer *buf){
         buf->cx--;
         line->chars[line->length] = '0';
         buf->dirty = 1;
+        buf->needs_redraw = 1;
     }
 }
 
@@ -256,6 +259,7 @@ void buffer_insert_newline(Buffer *buf, int auto_indent) {
     buf->cy++;
     buf->cx = add_indent;
     buf->dirty = 1;
+    buf->needs_redraw = 1;
 }
 
 void buffer_move_cursor_home(Buffer *buf){
@@ -288,6 +292,8 @@ void buffer_kill_line(Buffer *buf){
         buf->cx = 0;
         buffer_delete_char(buf);
     }
+    buf->dirty = 1;
+    buf->needs_redraw = 1;
 }
 
 void buffer_yank(Buffer *buf) {
@@ -306,6 +312,8 @@ void buffer_yank(Buffer *buf) {
             buffer_insert_char(buf, kill_ring[i]);
         }
     }
+    buf->dirty = 1;
+    buf->needs_redraw = 1;
 }
 
 void buffer_delete_forward(Buffer *buf) {
@@ -321,6 +329,7 @@ void buffer_delete_forward(Buffer *buf) {
         // FIX: Add the null terminator!
         line->chars[line->length] = '\0';
         buf->dirty = 1;
+        buf->needs_redraw = 1;
     } else if (buf->cy < buf->num_lines - 1) {
         buf->cy++;
         buf->cx = 0;
@@ -449,6 +458,7 @@ void buffer_replace_at_cursor(Buffer *buf, int match_len,
     line->chars[line->length] = '\0';
     buf->cx += replace_len;
     buf->dirty = 1;
+    buf->needs_redraw = 1;
 }
 
 // Helper to extract text between mark and cursor
@@ -522,6 +532,7 @@ void buffer_set_mark(Buffer *buf) {
     buf->mark_x = buf->cx;
     buf->mark_y = buf->cy;
     buf->mark_active = 1;
+    buf->needs_redraw = 1;
 }
 
 void buffer_kill_region(Buffer *buf) {
@@ -588,6 +599,8 @@ void buffer_kill_region(Buffer *buf) {
         	&buf->lines[ey + 1], 
         	sizeof(Line *) * (buf->num_lines - ey - 1));
         buf->num_lines -= (ey - sy);
+        buf->dirty = 1;
+        buf->needs_redraw = 1;
     }
     
     buf->cx = sx;
@@ -627,6 +640,7 @@ void buffer_copy_region(Buffer *buf) {
     if (kill_ring) free(kill_ring);
     kill_ring = buffer_extract_region(buf, sy, sx, ey, ex);
     buf->mark_active = 0;
+    buf->needs_redraw = 1;
 }
 
 void buffer_exchange_point_mark(Buffer *buf) {
@@ -637,6 +651,7 @@ void buffer_exchange_point_mark(Buffer *buf) {
     buf->cy = buf->mark_y;
     buf->mark_x = temp_x;
     buf->mark_y = temp_y;
+    buf->needs_redraw = 1;
 }
 
 void buffer_undo(Buffer *buf) {
@@ -668,6 +683,8 @@ void buffer_undo(Buffer *buf) {
     if (buf->cx > buf->lines[buf->cy]->length){
     	buf->cx = buf->lines[buf->cy]->length;
     }
+    buf->dirty = 1;
+    buf->needs_redraw = 1;
 }
 void buffer_move_word_forward(Buffer *buf) {
     Line *line = buf->lines[buf->cy];

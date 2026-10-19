@@ -17,6 +17,7 @@ typedef struct {
     int mark_x, mark_y;
     int mark_active;
     int dirty;
+    int needs_redraw;
 } Buffer;
 
 Buffer *buffer_create();

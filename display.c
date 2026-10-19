@@ -158,8 +158,8 @@ void render_line(Buffer *buf, int file_row, Window *cw, struct abuf *ab) {
     }
 
     // Line is inside selection
-    int highlight_start_byte = -1;
-    int highlight_end_byte = -1;
+    int highlight_start_byte = 0;
+    int highlight_end_byte = line->length;
     int curr_visual = 0;
     for (int i = 0; i <= line->length; i++) {
         if (file_row == sy && curr_visual == sx) highlight_start_byte = i;
@@ -232,61 +232,70 @@ void display_draw(Buffer *buf) {
     if (v_cx < aw->col_offset) aw->col_offset = v_cx;
     if (v_cx >= aw->col_offset + aw->width) aw->col_offset = v_cx - aw->width + 1;
     
+    static int last_row_offset = -1;
+    static int last_col_offset = -1;
+    static int last_num_windows = -1;
+    static int last_cx = -1;
+    static int last_cy = -1;
+    
+    int cursor_moved = (buf->cx != last_cx || buf->cy != last_cy);
+    
+    int must_redraw = buf->needs_redraw ||
+                      aw->row_offset != last_row_offset ||
+                      aw->col_offset != last_col_offset ||
+                      num_windows != last_num_windows ||
+                      (buf->mark_active && cursor_moved);
+    
     struct abuf ab = ABUF_INIT;
 
     //term_hide_cursor();
     ab_append(&ab, "\x1b[?25l", 6);
-    //term_cursor_pos(0, 0);
     
-    char buf_temp[32];
-    int len = snprintf(buf_temp, sizeof(buf_temp), "\x1b[%d;%dH", 1, 1);
-    ab_append(&ab, buf_temp, len);
-
-    // Draw separator if 2 windows
-    if (num_windows == 2) {
-        if(split_mode == 1){
-            for (int y = 0; y < screen_rows - 2; y++) {
-                len = snprintf(buf_temp, sizeof(buf_temp),
-                               "\x1b[%d;%dH",
-                               y + 1, (screen_cols / 2) + 1);
+    if(must_redraw){
+        char buf_temp[32];
+        int len = snprintf(buf_temp, sizeof(buf_temp), "\x1b[H");
+        ab_append(&ab, buf_temp, len);
+        
+        if (num_windows == 2) {
+            if(split_mode == 1){
+                for (int y = 0; y < screen_rows - 2; y++) {
+                    len = snprintf(buf_temp, sizeof(buf_temp),
+                    "\x1b[%d;%dH",
+                    y + 1, (screen_cols / 2) + 1);
+                    ab_append(&ab, buf_temp, len);
+                    ab_append(&ab, "|", 1);
+                }
+            }else {
+                int half_h = (screen_rows - 2) / 2;
+                len = snprintf(buf_temp, sizeof(buf_temp), "\x1b[%d;%dH", 1, 1);
                 ab_append(&ab, buf_temp, len);
-                ab_append(&ab, "|", 1);
-                //term_cursor_pos(screen_cols / 2, y);
-                //write(STDOUT_FILENO, "|", 1);
-            }
-        }else {
-            int half_h = (screen_rows - 2) / 2;
-            len = snprintf(buf_temp, sizeof(buf_temp), "\x1b[%d;%dH", 1, 1);
-            ab_append(&ab, buf_temp, len);
-            //term_cursor_pos(0, half_h);
-            for (int x = 0; x < screen_cols; x++) {
-                ab_append(&ab, "-", 1);
+                for (int x = 0; x < screen_cols; x++) {
+                    ab_append(&ab, "-", 1);
+                }
             }
         }
-    }
-
-    // --- FLAT WINDOW DRAWING LOOP ---
-    for (int w = 0; w < num_windows; w++) {
-        Window *cw = &windows[w];
-        //char blank[cw->width + 1];
-        //memset(blank, ' ', cw->width);
-        //blank[cw->width] = '\0';
-
-        for (int y = 0; y < cw->height; y++) {
-            //term_cursor_pos(cw->x, cw->y + y);
-            len = snprintf(buf_temp, 
-                            sizeof(buf_temp), "\x1b[%d;%dH", 
-                            cw->y + y + 1, cw->x + 1);
-            ab_append(&ab, buf_temp, len); // Clear line
-            ab_append(&ab, "\x1b[K", 3);
-            //term_cursor_pos(cw->x, cw->y + y);
-            render_line(windows[w].buf, y + cw->row_offset, cw, &ab); 
+        for (int w = 0; w < num_windows; w++) {
+            Window *cw = &windows[w];
+            for (int y = 0; y < cw->height; y++) {
+                len = snprintf(buf_temp,
+                               sizeof(buf_temp), "\x1b[%d;%dH",
+                               cw->y + y + 1, cw->x + 1);
+                ab_append(&ab, buf_temp, len); // Clear line
+                ab_append(&ab, "\x1b[K", 3);
+                render_line(windows[w].buf, y + cw->row_offset, cw, &ab); 
+            }
         }
+        buf->needs_redraw = 0;
+        last_row_offset = aw->row_offset;
+        last_col_offset = aw->col_offset;
+        last_num_windows = num_windows;
+        last_cx = buf->cx;
+        last_cy = buf->cy;
     }
-
+    
     // Draw Status Line
-    //term_cursor_pos(0, screen_rows - 2);
-    len = snprintf(buf_temp, sizeof(buf_temp), "\x1b[%d;%dH", screen_rows - 1, 1);
+    char buf_temp[32];
+    int len = snprintf(buf_temp, sizeof(buf_temp), "\x1b[%d;%dH", screen_rows - 1, 1);
     ab_append(&ab, buf_temp, len);
     ab_append(&ab, "\x1b[7m", 4);
     char status[120];
