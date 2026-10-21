@@ -695,6 +695,8 @@ void handle_autocomplete(Buffer *buf) {
     static int match_count = 0;
     static int match_idx = 0;
     static int original_prefix_len = 0;
+    static int last_cx = -1;
+    static int last_cy = -1;
 
     // 1. Get the word currently under the cursor
     Line *line = buf->lines[buf->cy];
@@ -709,9 +711,8 @@ void handle_autocomplete(Buffer *buf) {
 
     // 2. Check if we are cycling (cursor hasn't moved, word hasn't changed)
     int is_cycling = 0;
-    if (matches && match_count > 0 && active_prefix && 
-        strcmp(current_word, active_prefix) == 0 && 
-        current_len == original_prefix_len) {
+    if (active_prefix && buf->cx ==last_cx && buf->cy == last_cy 
+        && strncmp(current_word, active_prefix, original_prefix_len) == 0) {
         is_cycling = 1;
     }
 
@@ -739,6 +740,8 @@ void handle_autocomplete(Buffer *buf) {
         for (int i = original_prefix_len; i < strlen(match); i++) {
             buffer_insert_char(buf, match[i]);
         }
+        //if(active_prefix) free(active_prefix);
+        //active_prefix = strdup(match);
         
         if (match_count > 1) {
             char msg[256];
@@ -750,6 +753,8 @@ void handle_autocomplete(Buffer *buf) {
     } else {
         display_set_message("No match found.");
     }
+    last_cx = buf->cx;
+    last_cy = buf->cy;
 }
 
 int main(int argc, char *argv[]) {
