@@ -160,15 +160,9 @@ void render_line(Buffer *buf, int file_row, Window *cw, struct abuf *ab) {
     // Line is inside selection
     int highlight_start_byte = 0;
     int highlight_end_byte = line->length;
-    int curr_visual = 0;
-    for (int i = 0; i <= line->length; i++) {
-        if (file_row == sy && curr_visual == sx) highlight_start_byte = i;
-        if (file_row == ey && curr_visual == ex) highlight_end_byte = i;
-        if (i < line->length) {
-            char c = line->chars[i];
-            curr_visual += (c == '\t') ? (8 - (curr_visual % 8)) : 1;
-        }
-    }
+    
+    if(file_row == sy) highlight_start_byte = sx;
+    if(file_row == ey) highlight_end_byte = ex;
 
     int visual_x = 0;
     for (int i = 0; i < line->length; i++) {
