@@ -64,6 +64,10 @@ void term_cursor_pos(int x, int y){
 }
 
 int term_read_key(){
+    struct pollfd pfd = {STDIN_FILENO, POLLIN, 0};
+    poll(&pfd, 1, 100);
+    if(!(pfd.revents & POLLIN)) return -1;
+    
     char c;
     int nread = read(STDIN_FILENO, &c, 1);
     
@@ -77,7 +81,7 @@ int term_read_key(){
         return c;
     }
 
-    struct pollfd pfd = {STDIN_FILENO, POLLIN, 0};
+    //struct pollfd pfd = {STDIN_FILENO, POLLIN, 0};
     if(poll(&pfd, 1, 10) <= 0){
         return '\x1b';
     }

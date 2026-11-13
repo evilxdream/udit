@@ -401,7 +401,10 @@ void handle_kill_buffer(Buffer **buf_ptr){
 }
 
 Buffer *handle_ctrl_x(Buffer *buf, int *running) {
-    int next_key = term_read_key();
+    int next_key;
+    do {
+        next_key =term_read_key();
+    } while (next_key == -1);
     if (next_key == 7) { display_set_message("Abort"); return buf; }
 
     if (next_key == 19) { // Ctrl-S (Save)
@@ -683,9 +686,11 @@ cleanup:
     free(replace_str);
 }
 
+volatile sig_atomic_t needs_resume_redraw = 0;
 void resume_editor(int sig){
     term_init();
     term_enter_alt_screen();
+    needs_resume_redraw = 1;
 //    term_clear_screen();
 }
 
@@ -784,13 +789,14 @@ int main(int argc, char *argv[]) {
     sa.sa_flags = 0;
     sigaction(SIGCONT, &sa, NULL);
     while (running) {
+        if(needs_resume_redraw){
+            needs_resume_redraw = 0;
+            buf->needs_redraw = 1;
+        }
         display_draw(buf);
         int key = term_read_key();
-        if(key == KEY_RESUME){
-            buf->needs_redraw = 1;
-            display_draw(buf);
-            continue;
-        }
+        if(key == -1) continue;
+        if(key == KEY_RESUME) continue;
 
         switch (key) {
             case 7: { // Ctrl-G
