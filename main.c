@@ -686,7 +686,7 @@ cleanup:
 void resume_editor(int sig){
     term_init();
     term_enter_alt_screen();
-    term_clear_screen();
+//    term_clear_screen();
 }
 
 void handle_autocomplete(Buffer *buf) {
@@ -777,10 +777,20 @@ int main(int argc, char *argv[]) {
 
     int running = 1; // Use a running flag instead of goto
 
-    signal(SIGCONT, resume_editor);
+    //signal(SIGCONT, resume_editor);
+    struct sigaction sa;
+    sa.sa_handler = resume_editor;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    sigaction(SIGCONT, &sa, NULL);
     while (running) {
         display_draw(buf);
         int key = term_read_key();
+        if(key == KEY_RESUME){
+            buf->needs_redraw = 1;
+            display_draw(buf);
+            continue;
+        }
 
         switch (key) {
             case 7: { // Ctrl-G

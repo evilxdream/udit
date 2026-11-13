@@ -13,7 +13,8 @@ enum EditorKey {
     META_F,
     META_B,
     META_V,
-    META_SLASH
+    META_SLASH,
+    KEY_RESUME = 2000
 };
 
 void term_init();

@@ -8,6 +8,7 @@
 #include <ctype.h>
 #include <sys/ioctl.h>
 #include <poll.h>
+#include <errno.h>
 
 struct termios orig_termios;
 
@@ -65,6 +66,11 @@ void term_cursor_pos(int x, int y){
 int term_read_key(){
     char c;
     int nread = read(STDIN_FILENO, &c, 1);
+    
+    if(nread == -1 && errno == EINTR){
+        return KEY_RESUME;
+    }
+    
     if(nread != 1) return -1;
 
     if(c != '\x1b'){
@@ -110,5 +116,5 @@ void term_enter_alt_screen(){
 }
 
 void term_exit_alt_screen(){
-    write(STDOUT_FILENO, "\x1b[?104l", 8);
+    write(STDOUT_FILENO, "\x1b[?1049l", 8);
 }
