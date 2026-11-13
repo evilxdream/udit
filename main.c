@@ -238,7 +238,11 @@ int show_message(const char *msg){
     term_clear_line();
     
     write(STDOUT_FILENO, msg, strlen(msg));
-    return term_read_key();
+    int key;
+    do {
+        key = term_read_key();
+    } while (key == -1);
+    return key;
 }
 
 void flash_message(const char *msg){
@@ -865,7 +869,10 @@ int main(int argc, char *argv[]) {
                 break;
             }
             case 17: { // Ctrl-Q (Quoted insert)
-                int literal_key = term_read_key();
+                int literal_key;
+                do {
+                    literal_key = term_read_key();
+                } while (literal_key == -1);
                 if (literal_key == 9 || (literal_key >= 32 && literal_key <= 126))
                     buffer_insert_char(buf, literal_key);
                 break;
