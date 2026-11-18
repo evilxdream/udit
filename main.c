@@ -224,7 +224,7 @@ char *editor_prompt(const char *promt_msg, int tab_enabled){
             tab_complete_command(buf, &len);
         }else if (c == 9 && tab_enabled == 3){
             tab_complete_buffer(buf, &len);
-        }else if (c > 32 && c <= 126) {
+        }else if (c >= 32 && c <= 126) {
             buf[len++] = c;
             buf[len] = '\0';
         }
