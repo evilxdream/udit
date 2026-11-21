@@ -243,23 +243,23 @@ void display_draw(Buffer *buf) {
     struct abuf ab = ABUF_INIT;
 
     //term_hide_cursor();
-    ab_append(&ab, "\x1b[?25l", 6);
     
-    if(must_redraw){
-        char buf_temp[32];
-        int len = snprintf(buf_temp, sizeof(buf_temp), "\x1b[H");
-        ab_append(&ab, buf_temp, len);
+   if(must_redraw){
+       ab_append(&ab, "\x1b[?25l", 6);
+       char buf_temp[32];
+       int len = snprintf(buf_temp, sizeof(buf_temp), "\x1b[H");
+       ab_append(&ab, buf_temp, len);
         
-        if (num_windows == 2) {
-            if(split_mode == 1){
-                for (int y = 0; y < screen_rows - 2; y++) {
-                    len = snprintf(buf_temp, sizeof(buf_temp),
-                    "\x1b[%d;%dH",
-                    y + 1, (screen_cols / 2) + 1);
-                    ab_append(&ab, buf_temp, len);
-                    ab_append(&ab, "|", 1);
-                }
-            }else {
+       if (num_windows == 2) {
+           if(split_mode == 1){
+               for (int y = 0; y < screen_rows - 2; y++) {
+                   len = snprintf(buf_temp, sizeof(buf_temp),
+                   "\x1b[%d;%dH",
+                   y + 1, (screen_cols / 2) + 1);
+                   ab_append(&ab, buf_temp, len);
+                   ab_append(&ab, "|", 1);                
+               }
+           }else {
                 int half_h = (screen_rows - 2) / 2;
                 len = snprintf(buf_temp, 
                                sizeof(buf_temp), 
@@ -328,7 +328,10 @@ void display_draw(Buffer *buf) {
                    (v_cx - aw->col_offset + aw->x)+ 1);
     ab_append(&ab, buf_temp, len);
     //term_show_cursor();
-    ab_append(&ab, "\x1b[?25h", 6);
+    if(must_redraw){
+        ab_append(&ab, "\x1b[?25h", 6);
+    }
+    
     write(STDOUT_FILENO, ab.b, ab.len);
     ab_free(&ab);
 }

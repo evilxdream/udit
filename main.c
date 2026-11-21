@@ -792,12 +792,13 @@ int main(int argc, char *argv[]) {
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = 0;
     sigaction(SIGCONT, &sa, NULL);
+    buf->needs_redraw = 1;
+    display_draw(buf);
     while (running) {
         if(needs_resume_redraw){
             needs_resume_redraw = 0;
             buf->needs_redraw = 1;
         }
-        display_draw(buf);
         int key = term_read_key();
         if(key == -1) continue;
         if(key == KEY_RESUME) continue;
@@ -961,8 +962,8 @@ int main(int argc, char *argv[]) {
     	       }
     	       break;
         }
+        display_draw(buf);
     }
-
     buffer_free(buf);
     term_clear_screen();
     term_exit_alt_screen();
